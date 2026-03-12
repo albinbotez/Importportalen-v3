@@ -603,6 +603,10 @@
 // ============================================================
 // SUPABASE AUTH CONFIG
 // ============================================================
+if (!window.supabase) {
+    document.getElementById('loginError').textContent = 'Supabase-biblioteket kunne ikke lastes. Sjekk internettforbindelsen.';
+    document.getElementById('loginError').style.display = 'block';
+}
 const SUPABASE_URL = 'https://bgrkpkooyemcficuurxl.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJncmtwa29veWVtY2ZpY3V1cnhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMTkwOTksImV4cCI6MjA4ODk1MDk5fQ.wO9p2n-oQlrIaum80XvDn4DitPfoZu70kbWzrvIrVf0';
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
