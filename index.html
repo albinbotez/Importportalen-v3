@@ -80,11 +80,26 @@
             cursor: pointer;
             transition: all 0.2s;
         }
+        .btn-primary { background: linear-gradient(135deg, var(--accent-blue), #3b82f6); color: white; width: 100%; justify-content: center; }
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
         .btn-success { background: linear-gradient(135deg, var(--accent-green), #10b981); color: white; }
         .btn-success:hover { opacity: 0.9; }
         .btn-secondary { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); }
         .btn-secondary:hover { background: var(--bg-card-hover); }
         .btn-sm { padding: 8px 16px; font-size: 13px; }
+
+        .login-container { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+        .login-box {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 48px 40px; width: 100%; max-width: 420px; box-shadow: var(--shadow);
+        }
+        .login-box h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; background: linear-gradient(135deg, var(--accent-blue), var(--accent-green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .login-box p { color: var(--text-secondary); margin-bottom: 32px; font-size: 14px; }
+        .login-error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--accent-red); padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 16px; display: none; }
+        .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent-blue); border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .app-container { display: none; }
 
         .topbar {
             background: var(--bg-secondary);
@@ -96,7 +111,12 @@
             position: sticky;
             top: 0;
             z-index: 100;
+            justify-content: space-between;
         }
+        .topbar-right { display: flex; align-items: center; gap: 16px; }
+        .topbar-user { color: var(--text-secondary); font-size: 13px; }
+        .btn-logout { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); padding: 8px 16px; border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; transition: all 0.2s; }
+        .btn-logout:hover { color: var(--accent-red); border-color: rgba(239,68,68,0.3); }
         .topbar-brand {
             font-size: 20px;
             font-weight: 700;
@@ -216,8 +236,32 @@
 </head>
 <body>
 
+<!-- LOGIN -->
+<div class="login-container" id="loginPage">
+    <div class="login-box">
+        <h1>Importportalen</h1>
+        <p>Logg inn for &aring; fortsette</p>
+        <div class="login-error" id="loginError"></div>
+        <div class="form-group">
+            <label>E-post</label>
+            <input type="email" id="loginEmail" placeholder="din@epost.no" autocomplete="email">
+        </div>
+        <div class="form-group">
+            <label>Passord</label>
+            <input type="password" id="loginPassword" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password">
+        </div>
+        <button class="btn btn-primary" id="loginBtn" onclick="handleLogin()">Logg inn</button>
+    </div>
+</div>
+
+<!-- APP -->
+<div class="app-container" id="appContainer">
 <div class="topbar">
     <div class="topbar-brand">Importportalen</div>
+    <div class="topbar-right">
+        <span class="topbar-user" id="userEmail"></span>
+        <button class="btn-logout" onclick="handleLogout()">Logg ut</button>
+    </div>
 </div>
 
 <div class="main-layout">
@@ -550,10 +594,19 @@
 
     </div>
 </div>
+</div><!-- /app-container -->
 
 <div class="toast-container" id="toastContainer"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
+// ============================================================
+// SUPABASE AUTH CONFIG
+// ============================================================
+const SUPABASE_URL = 'https://tqtltkqwiqowstdiwfpb.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxdGx0a3F3aXFvd3N0ZGl3ZnBiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMTM2OTIsImV4cCI6MjA4ODg4OTY5Mn0.yDqBoPJhyP_JBpeydPToQBFAgFpgjqZrdM5XTwfWVKo';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 // ============================================================
 // AVGIFTSSATSER 2026
 // ============================================================
@@ -565,7 +618,7 @@ function calcTax(type, alc) {
 }
 
 // ============================================================
-// STORAGE
+// STORAGE (localStorage)
 // ============================================================
 function load(key) {
     try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; }
@@ -583,9 +636,72 @@ let sales      = load('sales');
 let customers  = load('customers');
 
 // ============================================================
+// AUTH
+// ============================================================
+async function handleLogin() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errorEl = document.getElementById('loginError');
+    const btn = document.getElementById('loginBtn');
+
+    if (!email || !password) {
+        errorEl.textContent = 'Fyll inn e-post og passord';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Logger inn...';
+    errorEl.style.display = 'none';
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    btn.disabled = false;
+    btn.textContent = 'Logg inn';
+
+    if (error) {
+        errorEl.textContent = 'Feil e-post eller passord';
+        errorEl.style.display = 'block';
+    }
+}
+
+async function handleLogout() {
+    await supabase.auth.signOut();
+    document.getElementById('loginPage').style.display = 'flex';
+    document.getElementById('appContainer').style.display = 'none';
+}
+
+function showApp(user) {
+    document.getElementById('loginPage').style.display = 'none';
+    document.getElementById('appContainer').style.display = 'block';
+    document.getElementById('userEmail').textContent = user.email;
+}
+
+// ============================================================
 // INIT
 // ============================================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Enter-tast for innlogging
+    document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+    document.getElementById('loginEmail').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginPassword').focus(); });
+
+    // Sjekk om bruker allerede er logget inn
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+        showApp(session.user);
+        initApp();
+    }
+
+    // Lytt etter innlogging/utlogging
+    supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+            showApp(session.user);
+            initApp();
+        }
+    });
+});
+
+function initApp() {
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('recDate').value = today;
     document.getElementById('saleDate').value = today;
@@ -595,7 +711,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('saleQuantity').addEventListener('input', updateSaleTaxPreview);
 
     renderAll();
-});
+}
 
 function renderAll() {
     renderProducts();
