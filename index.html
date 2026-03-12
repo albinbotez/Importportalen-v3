@@ -663,8 +663,9 @@ async function handleLogin() {
     btn.textContent = 'Logg inn';
 
     if (error) {
-        errorEl.textContent = 'Feil e-post eller passord';
+        errorEl.textContent = error.message + ' (status: ' + (error.status || 'ukjent') + ')';
         errorEl.style.display = 'block';
+        console.error('Login error:', error);
     }
 }
 
