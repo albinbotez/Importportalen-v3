@@ -618,22 +618,25 @@ function calcTax(type, alc) {
 }
 
 // ============================================================
-// STORAGE (localStorage)
+// DATA (loaded from Supabase)
 // ============================================================
-function load(key) {
-    try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; }
-}
-function save(key, data) {
-    localStorage.setItem(key, JSON.stringify(data));
-}
-function uid() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
+let products   = [];
+let receivings = [];
+let sales      = [];
+let customers  = [];
 
-let products   = load('products');
-let receivings = load('receivings');
-let sales      = load('sales');
-let customers  = load('customers');
+async function loadAllData() {
+    const [p, r, s, c] = await Promise.all([
+        supabase.from('products').select('*'),
+        supabase.from('receivings').select('*'),
+        supabase.from('sales').select('*'),
+        supabase.from('customers').select('*')
+    ]);
+    products   = p.data || [];
+    receivings = r.data || [];
+    sales      = s.data || [];
+    customers  = c.data || [];
+}
 
 // ============================================================
 // AUTH
@@ -671,10 +674,11 @@ async function handleLogout() {
     document.getElementById('appContainer').style.display = 'none';
 }
 
-function showApp(user) {
+async function showApp(user) {
     document.getElementById('loginPage').style.display = 'none';
     document.getElementById('appContainer').style.display = 'block';
     document.getElementById('userEmail').textContent = user.email;
+    await loadAllData();
 }
 
 // ============================================================
@@ -688,14 +692,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Sjekk om bruker allerede er logget inn
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
-        showApp(session.user);
+        await showApp(session.user);
         initApp();
     }
 
     // Lytt etter innlogging/utlogging
-    supabase.auth.onAuthStateChange((event, session) => {
+    supabase.auth.onAuthStateChange(async (event, session) => {
         if (event === 'SIGNED_IN' && session) {
-            showApp(session.user);
+            await showApp(session.user);
             initApp();
         }
     });
@@ -763,7 +767,7 @@ function renderProducts() {
     }).join('');
 }
 
-function addProduct() {
+async function addProduct() {
     const producer = document.getElementById('prodProducer').value.trim();
     const name     = document.getElementById('prodName').value.trim();
     const type     = document.getElementById('prodType').value;
@@ -773,8 +777,10 @@ function addProduct() {
     if (type === 'brennevin' && alcohol <= 22) { toast('Brennevin m\u00e5 ha over 22% alkohol', 'error'); return; }
     if (type === 'vin' && alcohol <= 4.7) { toast('Vin m\u00e5 ha over 4,7% alkohol', 'error'); return; }
 
-    products.push({ id: uid(), producer, name, type, alcohol_percent: alcohol });
-    save('products', products);
+    const { error } = await supabase.from('products').insert({ producer, name, type, alcohol_percent: alcohol });
+    if (error) { toast('Feil ved lagring: ' + error.message, 'error'); return; }
+
+    await loadAllData();
     document.getElementById('prodProducer').value = '';
     document.getElementById('prodName').value = '';
     document.getElementById('prodAlcohol').value = '';
@@ -782,10 +788,11 @@ function addProduct() {
     renderAll();
 }
 
-function deleteProduct(id) {
+async function deleteProduct(id) {
     if (!confirm('Vil du slette dette produktet?')) return;
-    products = products.filter(p => p.id !== id);
-    save('products', products);
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (error) { toast('Feil ved sletting: ' + error.message, 'error'); return; }
+    await loadAllData();
     toast('Produkt slettet');
     renderAll();
 }
@@ -812,26 +819,29 @@ function renderReceivings() {
     }).join('');
 }
 
-function addReceiving() {
-    const productId = document.getElementById('recProduct').value;
-    const quantity  = parseInt(document.getElementById('recQuantity').value);
-    const price     = parseFloat(document.getElementById('recPrice').value);
-    const date      = document.getElementById('recDate').value;
+async function addReceiving() {
+    const product_id = document.getElementById('recProduct').value;
+    const quantity   = parseInt(document.getElementById('recQuantity').value);
+    const price_per_bottle = parseFloat(document.getElementById('recPrice').value);
+    const date       = document.getElementById('recDate').value;
 
-    if (!productId || isNaN(quantity) || quantity < 1 || isNaN(price) || !date) { toast('Fyll inn alle felt korrekt', 'error'); return; }
+    if (!product_id || isNaN(quantity) || quantity < 1 || isNaN(price_per_bottle) || !date) { toast('Fyll inn alle felt korrekt', 'error'); return; }
 
-    receivings.push({ id: uid(), product_id: productId, quantity, price_per_bottle: price, date });
-    save('receivings', receivings);
+    const { error } = await supabase.from('receivings').insert({ product_id, quantity, price_per_bottle, date });
+    if (error) { toast('Feil ved lagring: ' + error.message, 'error'); return; }
+
+    await loadAllData();
     document.getElementById('recQuantity').value = '';
     document.getElementById('recPrice').value = '';
     toast('Mottak registrert');
     renderAll();
 }
 
-function deleteReceiving(id) {
+async function deleteReceiving(id) {
     if (!confirm('Vil du slette dette mottaket?')) return;
-    receivings = receivings.filter(r => r.id !== id);
-    save('receivings', receivings);
+    const { error } = await supabase.from('receivings').delete().eq('id', id);
+    if (error) { toast('Feil ved sletting: ' + error.message, 'error'); return; }
+    await loadAllData();
     toast('Mottak slettet');
     renderAll();
 }
@@ -861,28 +871,31 @@ function renderSales() {
     }).join('');
 }
 
-function addSale() {
-    const customerId = document.getElementById('saleCustomer').value;
-    const productId  = document.getElementById('saleProduct').value;
-    const quantity   = parseInt(document.getElementById('saleQuantity').value);
-    const date       = document.getElementById('saleDate').value;
+async function addSale() {
+    const customer_id = document.getElementById('saleCustomer').value;
+    const product_id  = document.getElementById('saleProduct').value;
+    const quantity    = parseInt(document.getElementById('saleQuantity').value);
+    const date        = document.getElementById('saleDate').value;
 
-    if (!customerId || !productId || isNaN(quantity) || quantity < 1 || !date) { toast('Fyll inn alle felt korrekt', 'error'); return; }
+    if (!customer_id || !product_id || isNaN(quantity) || quantity < 1 || !date) { toast('Fyll inn alle felt korrekt', 'error'); return; }
 
-    const stock = getStock(productId);
+    const stock = getStock(product_id);
     if (quantity > stock) { toast(`Ikke nok p\u00e5 lager. Beholdning: ${stock} flasker`, 'error'); return; }
 
-    sales.push({ id: uid(), customer_id: customerId, product_id: productId, quantity, date });
-    save('sales', sales);
+    const { error } = await supabase.from('sales').insert({ customer_id, product_id, quantity, date });
+    if (error) { toast('Feil ved lagring: ' + error.message, 'error'); return; }
+
+    await loadAllData();
     document.getElementById('saleQuantity').value = '';
     toast('Salg registrert');
     renderAll();
 }
 
-function deleteSale(id) {
+async function deleteSale(id) {
     if (!confirm('Vil du slette dette salget?')) return;
-    sales = sales.filter(s => s.id !== id);
-    save('sales', sales);
+    const { error } = await supabase.from('sales').delete().eq('id', id);
+    if (error) { toast('Feil ved sletting: ' + error.message, 'error'); return; }
+    await loadAllData();
     toast('Salg slettet');
     renderAll();
 }
@@ -921,14 +934,17 @@ function renderCustomers() {
     </tr>`).join('');
 }
 
-function addCustomer() {
+async function addCustomer() {
     const name    = document.getElementById('custName').value.trim();
-    const contact = document.getElementById('custContact').value.trim();
+    const contact_person = document.getElementById('custContact').value.trim();
     const phone   = document.getElementById('custPhone').value.trim();
     const email   = document.getElementById('custEmail').value.trim();
     if (!name) { toast('Kundenavn er p\u00e5krevd', 'error'); return; }
-    customers.push({ id: uid(), name, contact_person: contact, phone, email });
-    save('customers', customers);
+
+    const { error } = await supabase.from('customers').insert({ name, contact_person, phone, email });
+    if (error) { toast('Feil ved lagring: ' + error.message, 'error'); return; }
+
+    await loadAllData();
     document.getElementById('custName').value = '';
     document.getElementById('custContact').value = '';
     document.getElementById('custPhone').value = '';
@@ -937,10 +953,11 @@ function addCustomer() {
     renderAll();
 }
 
-function deleteCustomer(id) {
+async function deleteCustomer(id) {
     if (!confirm('Vil du slette denne kunden?')) return;
-    customers = customers.filter(c => c.id !== id);
-    save('customers', customers);
+    const { error } = await supabase.from('customers').delete().eq('id', id);
+    if (error) { toast('Feil ved sletting: ' + error.message, 'error'); return; }
+    await loadAllData();
     toast('Kunde slettet');
     renderAll();
 }
