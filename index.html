@@ -185,14 +185,13 @@
         .badge-low { background: rgba(239,68,68,0.15); color: var(--accent-red); }
         .badge-ok { background: rgba(52,211,153,0.15); color: var(--accent-green); }
 
-        .top-list { list-style: none; }
-        .top-list li { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid rgba(42,63,82,0.4); }
-        .top-list li:last-child { border-bottom: none; }
-        .top-rank { width: 28px; height: 28px; border-radius: 50%; background: rgba(74,158,255,0.1); color: var(--accent-blue); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; margin-right: 14px; flex-shrink: 0; }
-        .top-info { flex: 1; }
-        .top-name { font-size: 14px; font-weight: 500; }
-        .top-producer { font-size: 12px; color: var(--text-secondary); }
-        .top-count { font-size: 14px; font-weight: 600; color: var(--accent-green); }
+        .status-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0; }
+        .dot-green { background: var(--accent-green); box-shadow: 0 0 6px rgba(52,211,153,0.4); }
+        .dot-yellow { background: var(--accent-orange); box-shadow: 0 0 6px rgba(245,158,11,0.4); }
+        .dot-red { background: var(--accent-red); box-shadow: 0 0 6px rgba(239,68,68,0.4); }
+        .sortable-th { cursor: pointer; user-select: none; }
+        .sortable-th:hover { color: var(--accent-blue); }
+        .sort-arrow { font-size: 10px; margin-left: 4px; }
 
         .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 
@@ -280,14 +279,22 @@
                 </div>
             </div>
             <div class="card">
-                <div class="card-header"><h3>Topp 3 produkter etter volum</h3></div>
-                <ul class="top-list" id="topProducts">
-                    <li><span style="color:var(--text-muted)">Ingen salgsdata enn&aring;</span></li>
-                </ul>
-            </div>
-            <div class="card">
-                <div class="card-header"><h3>Lav beholdning</h3></div>
-                <div id="lowStockList" style="color:var(--text-muted);font-size:14px;">Ingen produkter med lav beholdning</div>
+                <div class="card-header"><h3>Alle produkter</h3></div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th class="sortable-th" onclick="sortDashboard('producer')">Produsent <span class="sort-arrow" id="sort-producer"></span></th>
+                                <th>Produktnavn</th>
+                                <th class="sortable-th" onclick="sortDashboard('volume')">Solgt denne mnd <span class="sort-arrow" id="sort-volume"></span></th>
+                                <th>Lager</th>
+                                <th>Kapasitet</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashProductsTable"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -847,6 +854,30 @@ function populateDropdowns() {
 // ============================================================
 // DASHBOARD
 // ============================================================
+let dashSort = { field: 'producer', asc: true };
+
+function sortDashboard(field) {
+    if (dashSort.field === field) {
+        dashSort.asc = !dashSort.asc;
+    } else {
+        dashSort.field = field;
+        dashSort.asc = true;
+    }
+    refreshDashboard();
+}
+
+function getMaxStock() {
+    if (products.length === 0) return 1;
+    return Math.max(1, ...products.map(p => getStock(p.id)));
+}
+
+function getStockDot(stock, maxStock) {
+    const pct = maxStock > 0 ? (stock / maxStock) * 100 : 0;
+    if (pct < 20) return 'dot-red';
+    if (pct < 50) return 'dot-yellow';
+    return 'dot-green';
+}
+
 function refreshDashboard() {
     const now = new Date();
     const thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
@@ -863,34 +894,54 @@ function refreshDashboard() {
     document.getElementById('statProducts').textContent = products.length;
     document.getElementById('statCustomers').textContent = customers.length;
 
-    // Top 3
+    // Monthly volume per product
     const vol = {};
     monthlySales.forEach(s => {
-        const p = products.find(pr => pr.id === s.product_id);
-        if (!vol[s.product_id]) vol[s.product_id] = { qty: 0, prod: p };
-        vol[s.product_id].qty += s.quantity;
+        vol[s.product_id] = (vol[s.product_id] || 0) + s.quantity;
     });
-    const top3 = Object.values(vol).sort((a, b) => b.qty - a.qty).slice(0, 3);
-    const topList = document.getElementById('topProducts');
-    topList.innerHTML = top3.length === 0
-        ? '<li><span style="color:var(--text-muted)">Ingen salgsdata denne m\u00e5neden</span></li>'
-        : top3.map((item, i) => `<li>
-            <span class="top-rank">${i + 1}</span>
-            <div class="top-info">
-                <div class="top-name">${esc(item.prod?.name || 'Ukjent')}</div>
-                <div class="top-producer">${esc(item.prod?.producer || '')}</div>
-            </div>
-            <span class="top-count">${item.qty} fl.</span>
-          </li>`).join('');
 
-    // Low stock
-    const low = products.filter(p => getStock(p.id) < 5);
-    const lowDiv = document.getElementById('lowStockList');
-    lowDiv.innerHTML = low.length === 0
-        ? '<span style="color:var(--text-muted)">Ingen produkter med lav beholdning</span>'
-        : '<div class="table-wrapper"><table><thead><tr><th>Produkt</th><th>Beholdning</th></tr></thead><tbody>' +
-          low.map(p => `<tr><td>${esc(p.producer)} — ${esc(p.name)}</td><td><span class="badge badge-low">${getStock(p.id)} flasker</span></td></tr>`).join('') +
-          '</tbody></table></div>';
+    const maxStock = getMaxStock();
+
+    // Build sortable list
+    let rows = products.map(p => ({
+        product: p,
+        stock: getStock(p.id),
+        monthlyVolume: vol[p.id] || 0
+    }));
+
+    // Sort
+    if (dashSort.field === 'producer') {
+        rows.sort((a, b) => dashSort.asc
+            ? a.product.producer.localeCompare(b.product.producer)
+            : b.product.producer.localeCompare(a.product.producer));
+    } else if (dashSort.field === 'volume') {
+        rows.sort((a, b) => dashSort.asc
+            ? a.monthlyVolume - b.monthlyVolume
+            : b.monthlyVolume - a.monthlyVolume);
+    }
+
+    // Sort arrows
+    document.getElementById('sort-producer').textContent = dashSort.field === 'producer' ? (dashSort.asc ? '\u25B2' : '\u25BC') : '';
+    document.getElementById('sort-volume').textContent = dashSort.field === 'volume' ? (dashSort.asc ? '\u25B2' : '\u25BC') : '';
+
+    const tbody = document.getElementById('dashProductsTable');
+    if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;">Ingen produkter registrert</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+        const dotClass = getStockDot(r.stock, maxStock);
+        const pct = maxStock > 0 ? Math.round((r.stock / maxStock) * 100) : 0;
+        return `<tr>
+            <td><span class="status-dot ${dotClass}"></span></td>
+            <td>${esc(r.product.producer)}</td>
+            <td>${esc(r.product.name)}</td>
+            <td>${r.monthlyVolume} fl.</td>
+            <td>${r.stock} flasker</td>
+            <td>${pct}%</td>
+        </tr>`;
+    }).join('');
 }
 
 // ============================================================
