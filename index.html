@@ -240,7 +240,7 @@
 <div class="login-container" id="loginPage">
     <div class="login-box">
         <h1>Importportalen</h1>
-        <p>Logg inn for &aring; fortsette</p>
+        <p>Logg inn for &aring; fortsette <span style="font-size:10px;color:#555;">v3</span></p>
         <div class="login-error" id="loginError"></div>
         <div class="form-group">
             <label>E-post</label>
@@ -642,30 +642,36 @@ async function loadAllData() {
 // AUTH
 // ============================================================
 async function handleLogin() {
-    const email = document.getElementById('loginEmail').value.trim();
-    const password = document.getElementById('loginPassword').value;
     const errorEl = document.getElementById('loginError');
     const btn = document.getElementById('loginBtn');
+    try {
+        const email = document.getElementById('loginEmail').value.trim();
+        const password = document.getElementById('loginPassword').value;
 
-    if (!email || !password) {
-        errorEl.textContent = 'Fyll inn e-post og passord';
+        if (!email || !password) {
+            errorEl.textContent = 'Fyll inn e-post og passord';
+            errorEl.style.display = 'block';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Logger inn...';
+        errorEl.style.display = 'none';
+
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+        btn.disabled = false;
+        btn.textContent = 'Logg inn';
+
+        if (error) {
+            errorEl.textContent = error.message + ' (status: ' + (error.status || 'ukjent') + ')';
+            errorEl.style.display = 'block';
+        }
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Logg inn';
+        errorEl.textContent = 'FEIL: ' + e.message;
         errorEl.style.display = 'block';
-        return;
-    }
-
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Logger inn...';
-    errorEl.style.display = 'none';
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-    btn.disabled = false;
-    btn.textContent = 'Logg inn';
-
-    if (error) {
-        errorEl.textContent = error.message + ' (status: ' + (error.status || 'ukjent') + ')';
-        errorEl.style.display = 'block';
-        console.error('Login error:', error);
     }
 }
 
